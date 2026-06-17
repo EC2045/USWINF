@@ -3,104 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>独自フォントIMEシステム</title>
+    <title>超本格独自フォントIMEシステム</title>
     <!-- Tailwind CSS (Aesthetics & Layout) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2canvas (エディタの画像化コピー用) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         /* 指定された独自のフォントを読み込む設定 */
         @font-face {
-            font-family: 'uswinf';
+            font-family: 'CustomImeFont';
             src: url('https://ec2045.github.io/USWINF/USWINF2.otf') format('opentype');
             font-display: swap;
         }
 
         /* 変換候補や入力エリアの中で、指定フォントを適用するクラス */
         .custom-font {
-            font-family: 'uswinf', 'Segoe UI Symbol', 'Apple Color Emoji', sans-serif;
+            font-family: 'CustomImeFont', 'Segoe UI Symbol', 'Apple Color Emoji', sans-serif;
+        }
+
+        /* 本物のIMEのような入力中下線スタイル */
+        .ime-composition {
+            border-bottom: 2px dashed #3b82f6;
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+
+        /* プレースホルダーの処理 */
+        #editor:empty::before {
+            content: attr(placeholder);
+            color: #9ca3af;
+            font-family: sans-serif;
         }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col items-center p-4 md:p-8">
 
-    <div class="w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+    <div class="w-full max-w-4xl bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
         <!-- ヘッダー -->
-        <div class="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 text-white">
-            <h1 class="text-2xl font-bold flex items-center gap-2">
-                <span>⌨️</span> 独自文字 IMEシミュレータ (高速版)
-            </h1>
-            <p class="text-sm opacity-90 mt-1">
-                ローマ字を連続入力して、Space / Tabキーや数字キーでサクサク快適に変換・確定できます。
-            </p>
-        </div>
-
-        <!-- コントロールパネル -->
-        <div class="p-6 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-4">
-            <!-- 自動変換設定 -->
-            <div class="flex items-center gap-3">
-                <span class="text-sm font-medium text-gray-700">自動変換 (完全一致時):</span>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="autoConvertToggle" class="sr-only peer">
-                    <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    <span id="autoConvertStatus" class="ml-2 text-xs font-semibold text-gray-500 uppercase">OFF</span>
-                </label>
-            </div>
-
-            <!-- ヘルプ簡易表示 -->
-            <div class="text-xs text-gray-500 bg-white px-3 py-1.5 rounded-lg border border-gray-200">
-                <span class="font-bold text-blue-600">【高速操作】</span> 
-                [Space] / [Tab]：選択中の候補で即確定 | [1]〜[9]：数字の候補で即確定
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <span>⌨️</span> 独自文字 IMEシミュレータ (標準版)
+                </h1>
+                <p class="text-sm opacity-90 mt-1">
+                    インライン下線変換・連続変換・辞書登録・画像書き出し対応。英字も候補から選んでそのまま打てます。
+                </p>
             </div>
         </div>
 
-        <!-- メインコンテンツ -->
-        <div class="p-6 space-y-6">
+        <!-- メイングリッド (左側: エディタと操作、右側: 辞書ツール) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
             
-            <!-- IME 入力エリア (模擬テキストエリア) -->
-            <div class="relative">
-                <label for="editor" class="block text-sm font-medium text-gray-700 mb-2">文章作成エリア</label>
-                
-                <!-- 実際にテキストを入力・編集するコンテナ。IMEのポッポアップ候補を制御しやすくするため、div contenteditableを使用 -->
-                <div id="editor" 
-                     contenteditable="true" 
-                     class="w-full min-h-[120px] p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none text-lg custom-font bg-white transition-all whitespace-pre-wrap"
-                     placeholder="ここにローマ字を入力してください（例: mini, esa, m）..."></div>
-                
-                <!-- 変換候補のフローティングツールチップ -->
-                <div id="candidatePopup" class="absolute z-10 hidden bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-[200px]">
-                    <div class="text-[10px] text-gray-400 px-2 py-0.5 border-b border-gray-100 flex justify-between gap-4">
-                        <span>変換候補</span>
-                        <span>[Space / Tab] 確定</span>
+            <!-- 左・中央カラム: エディタと変換操作 -->
+            <div class="col-span-2 p-6 space-y-6">
+                <!-- IME 入力エリア -->
+                <div class="relative">
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="editor" class="block text-sm font-medium text-gray-700">文章作成エリア</label>
+                        <span id="compositionStatus" class="text-xs text-blue-600 font-semibold h-4"></span>
                     </div>
-                    <div id="candidateList" class="flex flex-col max-h-56 overflow-y-auto">
-                        <!-- 候補がここに動的に生成される -->
+                    
+                    <!-- 実際にテキストを入力・編集するコンテナ。行の高さを広げてポップアップ被りを防止 -->
+                    <div id="editor" 
+                         contenteditable="true" 
+                         class="w-full min-h-[180px] p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none text-xl custom-font bg-white transition-all whitespace-pre-wrap leading-loose shadow-inner"
+                         placeholder="ローマ字を入力して、Spaceキーで変換候補を選択、Enterキーで確定します..."></div>
+                    
+                    <!-- 変換候補のフローティングポップアップ (影をハッキリさせ、文字被りを防ぐ配置に調整) -->
+                    <div id="candidatePopup" class="absolute z-50 hidden bg-white border border-gray-300 rounded-xl shadow-2xl p-1.5 min-w-[220px]">
+                        <div class="text-[10px] text-gray-400 px-2.5 py-1 border-b border-gray-100 flex justify-between gap-4">
+                            <span>変換候補</span>
+                            <span>[Space] 次 / [Enter] 確定</span>
+                        </div>
+                        <div id="candidateList" class="flex flex-col max-h-60 overflow-y-auto mt-1">
+                            <!-- 候補がここに動的に生成される -->
+                        </div>
                     </div>
+                </div>
+
+                <!-- 編集アクションボタン -->
+                <div class="flex flex-wrap justify-end items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                    <button id="clearBtn" class="px-3.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg transition-colors">
+                        クリア
+                    </button>
+                    <button id="copyImgBtn" class="px-3.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
+                        <span>🖼️</span> 画像としてコピー
+                    </button>
+                    <button id="copyBtn" class="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-md shadow-blue-100 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                        テキストコピー
+                    </button>
+                </div>
+
+                <!-- 操作マニュアル -->
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 text-xs text-gray-600 space-y-1.5">
+                    <p class="font-bold text-gray-700">💡 キーボード操作方法</p>
+                    <ul class="list-disc pl-4 space-y-1">
+                        <li>アルファベットを打つとインラインで下線が表示されます。</li>
+                        <li><kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">Space</kbd> / <kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">Tab</kbd> / <kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">↓</kbd> : 候補を選択します（そのままの英字も候補に並びます）。</li>
+                        <li><kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">Enter</kbd> : 選択中の候補で確定します。</li>
+                        <li><kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">1</kbd>〜<kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">9</kbd> : 数字キーでその番号の候補を一発確定します。</li>
+                        <li><kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">Ctrl + A</kbd> (Macは <kbd class="px-1.5 py-0.5 bg-white border rounded shadow-sm font-semibold">Cmd + A</kbd>) などの標準ショートカットは、変換中でなければそのまま動きます。</li>
+                    </ul>
                 </div>
             </div>
 
-            <!-- コピーなどのアクションボタン -->
-            <div class="flex justify-end gap-3">
-                <button id="clearBtn" class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                    クリア
-                </button>
-                <button id="copyBtn" class="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-md shadow-blue-100 flex items-center gap-1.5">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-                    テキストをコピー
-                </button>
-            </div>
+            <!-- 右カラム: 辞書登録ツール -->
+            <div class="p-6 bg-gray-50/50 space-y-6">
+                <div>
+                    <h2 class="text-sm font-bold text-gray-800 flex items-center gap-1.5 mb-1">
+                        <span>📔</span> 辞書登録・管理ツール
+                    </h2>
+                    <p class="text-xs text-gray-500">
+                        オリジナルの単語や読みを追加してカスタマイズできます（ローカル保存）。
+                    </p>
+                </div>
 
-            <!-- コピー成功メッセージ用通知 -->
-            <div id="toast" class="hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-4 py-2.5 rounded-xl shadow-lg text-sm flex items-center gap-2 transition-all duration-300">
-                <span>📋</span> コピーしました！
-            </div>
+                <!-- 新規追加フォーム -->
+                <form id="dictionaryForm" class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">よみ (英字)</label>
+                            <input type="text" id="newKey" required pattern="[a-zA-Z]+" placeholder="例: ami" 
+                                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">独自文字 (記号)</label>
+                            <input type="text" id="newChar" required placeholder="例: 󰀅" 
+                                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 custom-font">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm">
+                        辞書に追加する
+                    </button>
+                </form>
 
-            <!-- 辞書マップの視覚化 -->
-            <div class="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
-                <h3 class="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-1.5">
-                    <span>📖</span> 登録されている変換パターン一覧
-                </h3>
-                <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 text-xs">
-                    <!-- JavaScriptで辞書から動的生成します -->
-                    <div id="dictionaryGrid" class="contents"></div>
+                <!-- 登録単語リスト -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="font-bold text-gray-700">登録済み単語一覧 (<span id="dictCount">0</span>)</span>
+                        <button id="resetDictBtn" class="text-red-500 hover:underline">初期状態に戻す</button>
+                    </div>
+                    
+                    <div id="dictionaryList" class="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-gray-100 shadow-sm">
+                        <!-- 動的に辞書項目が表示される -->
+                    </div>
                 </div>
             </div>
 
@@ -108,13 +157,18 @@
     </div>
 
     <!-- フッター -->
-    <div class="mt-6 text-center text-xs text-gray-400">
-        <p>※ 実際の変換には「<span class="font-semibold">https://example.com/font.otf</span>」が正しく配信されている必要があります。</p>
+    <div class="mt-6 text-center text-xs text-gray-400 max-w-lg">
+        <p>※ 「<span class="font-semibold">USWINF2.otf</span>」フォントをインポートしています。ブラウザ環境によっては外字のコピー・貼り付け時に対応フォントの指定が必要になります。</p>
+    </div>
+
+    <!-- コピー成功メッセージ用通知 -->
+    <div id="toast" class="hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-950 text-white px-5 py-3 rounded-xl shadow-2xl text-sm flex items-center gap-2 transition-all duration-300 z-50">
+        <span id="toastIcon">📋</span> <span id="toastText">コピーしました！</span>
     </div>
 
     <script>
-        // 1. 変換用マッピング辞書データの定義
-        const dictionary = [
+        // 1. デフォルトの辞書データ
+        const defaultDictionary = [
             { key: 'ni', char: '󰀁' },
             { key: 'kai', char: '󰀂' },
             { key: 'esa', char: '󰀃' },
@@ -136,59 +190,121 @@
             { key: 'ri', char: '󰁤' }
         ];
 
+        // 辞書オブジェクト
+        let dictionary = [];
+
         // 2. DOM要素の取得
         const editor = document.getElementById('editor');
         const candidatePopup = document.getElementById('candidatePopup');
         const candidateList = document.getElementById('candidateList');
-        const dictionaryGrid = document.getElementById('dictionaryGrid');
-        const autoConvertToggle = document.getElementById('autoConvertToggle');
-        const autoConvertStatus = document.getElementById('autoConvertStatus');
+        const compositionStatus = document.getElementById('compositionStatus');
         const copyBtn = document.getElementById('copyBtn');
+        const copyImgBtn = document.getElementById('copyImgBtn');
         const clearBtn = document.getElementById('clearBtn');
         const toast = document.getElementById('toast');
+        const toastText = document.getElementById('toastText');
+        const toastIcon = document.getElementById('toastIcon');
+
+        // 辞書フォーム関係
+        const dictionaryForm = document.getElementById('dictionaryForm');
+        const newKeyInput = document.getElementById('newKey');
+        const newCharInput = document.getElementById('newChar');
+        const dictionaryListEl = document.getElementById('dictionaryList');
+        const dictCountEl = document.getElementById('dictCount');
+        const resetDictBtn = document.getElementById('resetDictBtn');
 
         // 3. 状態管理変数
-        let currentInputBuffer = ""; // 現在変換処理の対象になっている半角英字バッファ
-        let activeCandidates = [];   // 現在の入力に対応する候補一覧
-        let selectedCandidateIndex = 0; // 現在選択中の候補インデックス (常に0番目を初期選択に)
-        let isAutoConvertOn = false; // 自動変換フラグ（初期値：OFF）
+        let currentInputBuffer = ""; // ローマ字入力中のバッファ
+        let activeCandidates = [];   // 現在の候補一覧
+        let selectedCandidateIndex = 0; // 現在選択中の候補インデックス
 
         // 4. 初期化処理
         window.addEventListener('DOMContentLoaded', () => {
-            renderDictionary();
+            loadDictionary();
             editor.focus();
-            
-            // プレースホルダーの擬似制御
-            if (editor.textContent.trim() === "") {
-                editor.innerHTML = ""; // 空白バグ防止
-            }
         });
 
-        // 5. 辞書一覧の描画
-        function renderDictionary() {
-            dictionaryGrid.innerHTML = '';
-            dictionary.forEach(item => {
-                const itemEl = document.createElement('div');
-                itemEl.className = 'bg-white p-2 rounded-lg border border-gray-200 flex justify-between items-center shadow-sm';
-                itemEl.innerHTML = `
-                    <span class="font-mono text-gray-500 font-bold">${item.key}</span>
-                    <span class="custom-font text-lg text-blue-600 font-semibold">${item.char}</span>
+        // 5. ローカルストレージ辞書管理
+        function loadDictionary() {
+            const stored = localStorage.getItem('custom_ime_dictionary');
+            if (stored) {
+                try {
+                    dictionary = JSON.parse(stored);
+                } catch(e) {
+                    dictionary = [...defaultDictionary];
+                }
+            } else {
+                dictionary = [...defaultDictionary];
+                saveDictionaryToStorage();
+            }
+            renderDictionaryList();
+        }
+
+        function saveDictionaryToStorage() {
+            localStorage.setItem('custom_ime_dictionary', JSON.stringify(dictionary));
+            renderDictionaryList();
+        }
+
+        function renderDictionaryList() {
+            dictionaryListEl.innerHTML = '';
+            dictCountEl.textContent = dictionary.length;
+
+            dictionary.forEach((item, index) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between p-2.5 hover:bg-gray-50 transition-colors text-sm';
+                row.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-xs">${item.key}</span>
+                        <span class="custom-font text-lg text-blue-600 font-semibold">${item.char}</span>
+                    </div>
+                    <button class="text-red-400 hover:text-red-600 text-xs p-1" onclick="deleteDictionaryItem(${index})">
+                        削除
+                    </button>
                 `;
-                dictionaryGrid.appendChild(itemEl);
+                dictionaryListEl.appendChild(row);
             });
         }
 
-        // 6. トグルスイッチ変更イベント
-        autoConvertToggle.addEventListener('change', (e) => {
-            isAutoConvertOn = e.target.checked;
-            autoConvertStatus.textContent = isAutoConvertOn ? "ON" : "OFF";
-            autoConvertStatus.className = isAutoConvertOn 
-                ? "ml-2 text-xs font-semibold text-blue-600" 
-                : "ml-2 text-xs font-semibold text-gray-500";
-            editor.focus();
+        // 辞書アイテム削除用（グローバルスコープに置く）
+        window.deleteDictionaryItem = function(index) {
+            dictionary.splice(index, 1);
+            saveDictionaryToStorage();
+            showToast('🗑️', '辞書から単語を削除しました');
+        };
+
+        // 辞書追加フォーム送信
+        dictionaryForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const key = newKeyInput.value.trim().toLowerCase();
+            const char = newCharInput.value.trim();
+
+            if (!key || !char) return;
+
+            // すでに同一キーがあるか確認
+            const existingIndex = dictionary.findIndex(item => item.key === key);
+            if (existingIndex !== -1) {
+                dictionary[existingIndex].char = char; // 上書き
+            } else {
+                dictionary.push({ key, char });
+            }
+
+            saveDictionaryToStorage();
+            newKeyInput.value = '';
+            newCharInput.value = '';
+            newKeyInput.focus();
+            showToast('📔', '辞書に追加しました！');
         });
 
-        // 7. 入力バッファから候補を探索（連続変換・分割マッチング含む）
+        // 辞書初期化
+        resetDictBtn.addEventListener('click', () => {
+            if (confirm('辞書設定を初期状態（デフォルト）に戻してもよろしいですか？')) {
+                dictionary = [...defaultDictionary];
+                saveDictionaryToStorage();
+                showToast('🔄', '辞書を初期化しました');
+            }
+        });
+
+        // 6. IME 候補検索（連続変換＋英字そのものの候補を統合）
         function getCandidates(input) {
             if (!input) return [];
             input = input.toLowerCase();
@@ -227,7 +343,7 @@
                     }
                 }
                 
-                // どの辞書キーにもマッチしない部分がある場合、1文字進めてそのまま残す（フォールバック）
+                // どの辞書キーにもマッチしない部分がある場合、そのまま残す（フォールバック）
                 if (!matched) {
                     dfs(remaining.substring(1), [...path, { char: remaining[0], key: remaining[0] }]);
                 }
@@ -237,14 +353,12 @@
 
             // 探索結果を整形して追加
             combinations.forEach(path => {
-                // 最低1つは変換されているもののみ対象とする
                 const hasConverted = path.some(p => p.char !== p.key);
                 if (!hasConverted) return;
 
                 const combinedChar = path.map(p => p.char).join('');
                 const combinedKey = path.map(p => p.key).join('');
                 
-                // 重複がなければ候補に追加
                 if (!candidates.some(c => c.char === combinedChar)) {
                     candidates.push({
                         char: combinedChar,
@@ -254,23 +368,42 @@
                 }
             });
 
+            // (3) ★ 入力されたアルファベットそのものを変換候補として必ず追加
+            candidates.push({
+                char: input,
+                key: input,
+                type: '英字'
+            });
+
             return candidates;
         }
 
-        // 8. 候補ポップアップの位置計算と表示
+        // 7. 候補ポップアップ表示位置の決定（文字被りを防ぐためのマージンを十分確保）
         function showPopupAtSelection() {
             const selection = window.getSelection();
             if (selection.rangeCount === 0) return;
 
             const range = selection.getRangeAt(0).cloneRange();
-            const rects = range.getClientRects();
+            const compositionSpan = editor.querySelector('.ime-composition');
             
-            if (rects.length > 0) {
-                const rect = rects[0];
-                const editorRect = editor.getBoundingClientRect();
+            let rect;
+            if (compositionSpan) {
+                rect = compositionSpan.getBoundingClientRect();
+            } else {
+                const rects = range.getClientRects();
+                rect = rects.length > 0 ? rects[0] : null;
+            }
 
-                let topPosition = rect.bottom - editorRect.top + editor.scrollTop + 8;
+            if (rect) {
+                const editorRect = editor.getBoundingClientRect();
+                // 下部マージンを12pxに広げて文字との距離をとる
+                let topPosition = rect.bottom - editorRect.top + editor.scrollTop + 12;
                 let leftPosition = rect.left - editorRect.left + editor.scrollLeft;
+
+                // ポップアップが画面外に飛び出ないように制限
+                if (leftPosition + 220 > editorRect.width) {
+                    leftPosition = Math.max(10, editorRect.width - 230);
+                }
 
                 candidatePopup.style.top = `${topPosition}px`;
                 candidatePopup.style.left = `${leftPosition}px`;
@@ -278,14 +411,12 @@
             }
         }
 
-        // 9. ポップアップを非表示にする
         function hidePopup() {
             candidatePopup.classList.add('hidden');
-            selectedCandidateIndex = 0;
             activeCandidates = [];
         }
 
-        // 10. 候補リストをレンダリングする
+        // 8. 候補リストを画面に表示する
         function renderCandidates() {
             candidateList.innerHTML = '';
             
@@ -297,21 +428,23 @@
             activeCandidates.forEach((candidate, index) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = `w-full text-left px-3 py-1.5 flex items-center justify-between text-sm transition-colors ${
+                btn.className = `w-full text-left px-3 py-2 flex items-center justify-between text-sm transition-colors rounded-lg ${
                     index === selectedCandidateIndex 
-                    ? 'bg-blue-100 text-blue-900 font-semibold' 
+                    ? 'bg-blue-100 text-blue-950 font-bold' 
                     : 'hover:bg-gray-50 text-gray-700'
                 }`;
                 
+                // 󰀅 [mi] の形式で出力
                 btn.innerHTML = `
                     <div class="flex items-center gap-2">
-                        <span class="text-xs text-gray-400 font-mono w-4">${index + 1}</span>
-                        <span class="custom-font text-base font-medium">${candidate.char}</span>
+                        <span class="text-xs text-gray-400 font-mono w-4 text-center">${index + 1}</span>
+                        <span class="custom-font text-lg">${candidate.char}</span>
+                        <span class="text-xs text-gray-500 font-normal">[${candidate.key}]</span>
                     </div>
-                    <span class="text-[10px] text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded">${candidate.type}</span>
+                    <span class="text-[10px] text-gray-400 font-mono bg-gray-200/60 px-1.5 py-0.5 rounded">${candidate.type}</span>
                 `;
 
-                // クリックして即選択確定できるようにする
+                // クリックで即確定
                 btn.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     selectCandidate(index);
@@ -323,77 +456,164 @@
             showPopupAtSelection();
         }
 
-        // 11. 指定したインデックスの候補で入力を置換・確定する
+        // 9. 選択候補をエディタに完全に書き込む（確定）
         function selectCandidate(index) {
             if (index < 0 || index >= activeCandidates.length) return;
             const chosen = activeCandidates[index];
-            insertCharacter(chosen.char);
-            hidePopup();
+            commitText(chosen.char);
         }
 
-        // 12. 文字列をエディタのカーソル位置に挿入する共通処理
-        function insertCharacter(char) {
-            const selection = window.getSelection();
-            if (!selection.rangeCount) return;
+        // 10. 未確定テキスト（下線）をエディタ上に描画する
+        function updateCompositionView() {
+            if (currentInputBuffer.length === 0) {
+                removeCompositionNode();
+                hidePopup();
+                compositionStatus.textContent = "";
+                return;
+            }
 
-            const range = selection.getRangeAt(0);
+            // まだ確定されていない文字列の表示
+            let displayText = currentInputBuffer;
+            if (activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
+                displayText = activeCandidates[selectedCandidateIndex].char;
+            }
+
+            compositionStatus.textContent = `入力中: ${currentInputBuffer}`;
+
+            // インライン入力用のスパンを作成または更新
+            let compNode = editor.querySelector('.ime-composition');
+            if (!compNode) {
+                compNode = document.createElement('span');
+                compNode.className = 'ime-composition custom-font';
+                
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    range.deleteContents();
+                    range.insertNode(compNode);
+                    
+                    // カーソルをスパンの中に配置
+                    range.selectNodeContents(compNode);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                }
+            }
+
+            compNode.textContent = displayText;
             
-            // 現在の入力中バッファ（英字テキスト）を削除する
-            range.setStart(range.startContainer, Math.max(0, range.startOffset - currentInputBuffer.length));
-            range.deleteContents();
-
-            // 新しい文字を挿入
-            const textNode = document.createTextNode(char);
-            range.insertNode(textNode);
-
-            // カーソルを挿入した文字の直後に移動させる
-            range.setStartAfter(textNode);
-            range.setEndAfter(textNode);
-            selection.removeAllRanges();
-            selection.addRange(range);
-
-            // バッファをリセット
-            currentInputBuffer = "";
+            // 候補ポップアップを表示
+            renderCandidates();
         }
 
-        // 13. エディタへのキー入力処理（メインのIME制御ロジック）
+        // 未確定スパンを削除する
+        function removeCompositionNode() {
+            const compNode = editor.querySelector('.ime-composition');
+            if (compNode) {
+                compNode.remove();
+                // プレースホルダー表示などのために空になった時の修正
+                if (editor.textContent.trim() === "") {
+                    editor.innerHTML = "";
+                }
+            }
+        }
+
+        // 11. 確定処理：下線スパンを普通のテキストとして確定させる
+        function commitText(text) {
+            const compNode = editor.querySelector('.ime-composition');
+            if (compNode) {
+                const selection = window.getSelection();
+                const range = document.createRange();
+                
+                // 新しいテキストノードを作成
+                const textNode = document.createTextNode(text);
+                compNode.parentNode.replaceChild(textNode, compNode);
+                
+                // カーソルを確定した文字の直後に設定
+                range.setStartAfter(textNode);
+                range.setEndAfter(textNode);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            } else {
+                // スパンがない場合は通常挿入
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const textNode = document.createTextNode(text);
+                    range.insertNode(textNode);
+                    range.setStartAfter(textNode);
+                    range.setEndAfter(textNode);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                }
+            }
+
+            // バッファとポップアップをクリア
+            currentInputBuffer = "";
+            activeCandidates = [];
+            selectedCandidateIndex = 0;
+            hidePopup();
+            compositionStatus.textContent = "";
+        }
+
+        // 現在のバッファのまま確定させる（変換なし、アルファベットのまま）
+        function commitComposition() {
+            if (currentInputBuffer.length > 0) {
+                commitText(currentInputBuffer);
+            }
+        }
+
+        // 12. エディタ入力イベントハンドリング（IMEエンジン本体）
         editor.addEventListener('keydown', (e) => {
+            // ★ Ctrl キーや Cmd キー（Meta）などが押されているショートカットキー操作は一切邪魔せずスルーする
+            if (e.ctrlKey || e.metaKey) {
+                // ただし、変換中に入力キーを処理してしまわないよう、バッファを確定してからスルー
+                commitComposition();
+                return;
+            }
+
             const isPopupVisible = !candidatePopup.classList.contains('hidden');
 
-            // 1) Space / Tabキーによる「即確定」
+            // 1) Space / Tabキーによる「候補の選択」
             if (e.key === ' ' || e.code === 'Space' || e.key === 'Tab') {
                 if (currentInputBuffer.length > 0) {
-                    e.preventDefault(); // 空白挿入・タブフォーカス移動を抑止
+                    e.preventDefault(); // デフォルト挙動の防止
                     
                     if (isPopupVisible && activeCandidates.length > 0) {
-                        // 現在選択されている候補で即確定！
-                        selectCandidate(selectedCandidateIndex);
+                        // 候補がでていれば、インデックスを進める
+                        selectedCandidateIndex = (selectedCandidateIndex + 1) % activeCandidates.length;
+                        updateCompositionView();
                     } else {
-                        // 候補が見つかれば確定、なければ通常の空白・タブを挿入
+                        // 候補がないがバッファがある場合、変換候補を表示
                         const candidates = getCandidates(currentInputBuffer);
                         if (candidates.length > 0) {
-                            insertCharacter(candidates[0].char);
+                            activeCandidates = candidates;
+                            selectedCandidateIndex = 0;
+                            updateCompositionView();
                         } else {
-                            insertCharacter(e.key === 'Tab' ? '\t' : ' ');
+                            // 候補が一切なければそのまま確定
+                            commitComposition();
                         }
                     }
                     return;
                 }
             }
 
-            // 2) Enterキーの処理
+            // 2) Enterキーによる「確定」
             if (e.key === 'Enter') {
-                if (isPopupVisible && activeCandidates.length > 0) {
+                if (currentInputBuffer.length > 0) {
                     e.preventDefault();
-                    // 現在選択されている候補で確定
-                    selectCandidate(selectedCandidateIndex);
-                } else {
-                    currentInputBuffer = "";
+                    if (isPopupVisible && activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
+                        // 選択中の文字で確定
+                        selectCandidate(selectedCandidateIndex);
+                    } else {
+                        // 候補がない、もしくは選ばれていないときはそのままアルファベットで確定
+                        commitComposition();
+                    }
+                    return;
                 }
-                return;
             }
 
-            // 3) 数字キー (1〜9) でのショートカット即確定
+            // 3) 数字キー (1〜9) での一発即確定
             if (isPopupVisible && /^[1-9]$/.test(e.key)) {
                 const index = parseInt(e.key, 10) - 1;
                 if (index < activeCandidates.length) {
@@ -403,84 +623,87 @@
                 }
             }
 
-            // 4) Backspaceキーの処理
+            // 4) Backspaceキーの処理（バッファを一文字削る）
             if (e.key === 'Backspace') {
                 if (currentInputBuffer.length > 0) {
+                    e.preventDefault();
                     currentInputBuffer = currentInputBuffer.slice(0, -1);
                     updateIMEState();
+                    return;
                 }
-                return;
             }
 
-            // 5) Escapeキーでポップアップを閉じる
+            // 5) Escapeキー（変換キャンセルして入力前に戻す）
             if (e.key === 'Escape') {
-                hidePopup();
-                return;
+                if (currentInputBuffer.length > 0) {
+                    e.preventDefault();
+                    removeCompositionNode();
+                    currentInputBuffer = "";
+                    hidePopup();
+                    compositionStatus.textContent = "";
+                    return;
+                }
             }
 
-            // 6) 矢印キー（上下）で候補を選択
+            // 6) 矢印キー（上下）で候補変更
             if (isPopupVisible) {
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
                     selectedCandidateIndex = (selectedCandidateIndex + 1) % activeCandidates.length;
-                    renderCandidates();
+                    updateCompositionView();
                     return;
                 }
                 if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     selectedCandidateIndex = (selectedCandidateIndex - 1 + activeCandidates.length) % activeCandidates.length;
-                    renderCandidates();
+                    updateCompositionView();
                     return;
                 }
             }
 
-            // 7) 通常のローマ字入力（a-zのみ対象）
+            // 7) アルファベットキー (A-Z) の入力
             if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+                e.preventDefault();
                 currentInputBuffer += e.key;
-                
-                // 自動変換がONで、かつ完全一致するキーが辞書にあるか確認
-                if (isAutoConvertOn) {
-                    const exactMatch = dictionary.find(item => item.key === currentInputBuffer.toLowerCase());
-                    if (exactMatch) {
-                        e.preventDefault();
-                        insertCharacter(exactMatch.char);
-                        hidePopup();
-                        return;
-                    }
-                }
-
-                // 通常のバッファ更新処理
-                setTimeout(() => {
-                    updateIMEState();
-                }, 10);
-            } else {
-                // 英字以外が入力されたらバッファを確定（リセット）
-                currentInputBuffer = "";
-                hidePopup();
+                updateIMEState();
+            } else if (e.key.length === 1) {
+                // それ以外の文字（記号、スペース以外）が打たれた場合は一度バッファを確定してから入力
+                commitComposition();
             }
         });
 
-        // エディタをクリックしたときに、バッファをリセットしてポップアップを消す
-        editor.addEventListener('click', () => {
-            currentInputBuffer = "";
-            hidePopup();
+        // 外部をクリックしたときのIME状態クリア
+        document.addEventListener('click', (e) => {
+            if (!editor.contains(e.target) && !candidatePopup.contains(e.target)) {
+                commitComposition();
+            }
         });
 
-        // 14. 入力バッファを元に状態を更新する
+        // バッファを基に候補と表示ビューを更新
         function updateIMEState() {
-            if (currentInputBuffer.length === 0) {
-                hidePopup();
-                return;
-            }
-
             activeCandidates = getCandidates(currentInputBuffer);
-            selectedCandidateIndex = 0; // 常に1番目の候補を初期選択状態にする
-            renderCandidates();
+            selectedCandidateIndex = activeCandidates.length > 0 ? 0 : -1;
+            updateCompositionView();
         }
 
-        // 15. コピー機能
+        // 13. トースト通知表示ユーティリティ
+        function showToast(icon, message) {
+            toastIcon.textContent = icon;
+            toastText.textContent = message;
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 2000);
+        }
+
+        // 14. テキストのみコピー機能
         copyBtn.addEventListener('click', () => {
-            const textToCopy = editor.textContent;
+            // 下線表示スパンを除去した状態でテキストを取得するためにクローンを作成
+            const tempDiv = editor.cloneNode(true);
+            const comp = tempDiv.querySelector('.ime-composition');
+            if (comp) comp.remove();
+            
+            const textToCopy = tempDiv.textContent;
             
             const tempTextArea = document.createElement('textarea');
             tempTextArea.value = textToCopy;
@@ -489,16 +712,56 @@
             
             try {
                 document.execCommand('copy');
-                toast.classList.remove('hidden');
-                setTimeout(() => {
-                    toast.classList.add('hidden');
-                }, 2000);
+                showToast('📋', 'テキストをクリップボードにコピーしました！');
             } catch (err) {
-                console.error('コピーに失敗しました。', err);
+                console.error(err);
             } finally {
                 document.body.removeChild(tempTextArea);
             }
         });
+
+        // 15. テキストを「画像としてコピー（＆保存）」する機能
+        copyImgBtn.addEventListener('click', () => {
+            commitComposition(); // 撮影前に入力中バッファを確定
+            
+            // エディタをきれいにレンダリングするためのテンポラリスタイル調整
+            const originalBorder = editor.style.border;
+            editor.style.border = 'none'; // 枠線を消して美しく撮影
+            
+            // html2canvasで描画
+            html2canvas(editor, {
+                backgroundColor: '#ffffff',
+                scale: 2, // 高解像度化
+                logging: false,
+                useCORS: true // フォントロード対応
+            }).then(canvas => {
+                editor.style.border = originalBorder; // 戻す
+
+                // 1. クリップボードへの画像としての直接コピー（モダンブラウザ対応）
+                canvas.toBlob(blob => {
+                    if (navigator.clipboard && navigator.clipboard.write) {
+                        const item = new ClipboardItem({ "image/png": blob });
+                        navigator.clipboard.write([item]).then(() => {
+                            showToast('🖼️', 'エディタ画像をクリップボードにコピーしました！');
+                        }).catch(err => {
+                            // クリップボード書き込みが拒否された場合はダウンロードフォールバック
+                            fallbackDownload(canvas);
+                        });
+                    } else {
+                        fallbackDownload(canvas);
+                    }
+                }, 'image/png');
+            });
+        });
+
+        // 画像コピーが使えなかった場合のダウンロードフォールバック
+        function fallbackDownload(canvas) {
+            const link = document.createElement('a');
+            link.download = `custom_font_text_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            showToast('💾', 'ブラウザ制限のため、PNG画像としてダウンロードしました！');
+        }
 
         // 16. クリア機能
         clearBtn.addEventListener('click', () => {
