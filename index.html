@@ -268,7 +268,7 @@
 
     <!-- フッター -->
     <div class="mt-6 text-center text-xs text-slate-400 max-w-lg">
-        <p>※ 「<span class="font-semibold">USWINF2.otf</span>」フォントをインポートしています。ブラウザ環境によっては外字のコピー・貼り付け時に対応フォントの指定が必要になります。</p>
+        <p>※ 「<span class="font-semibold">USWINF2.otf</span>」フォントをインポートしています。ブラウザ環境によっては外字のコピー・貼り付け時に対応フォントの指定必要になります。</p>
     </div>
 
     <!-- コピー成功メッセージ用通知 -->
@@ -298,9 +298,20 @@
             { key: 'va', char: '󰁢' },
             { key: 'asu', char: '󰁣' },
             { key: 'ri', char: '󰁤' },
-            {key:'yu',char:'󰀎'},
-            {key:'tut',char:'󰀏'},
-            {key:'shun',char:'󰀐'}
+            { key: 'yu', char: '󰀎' },
+            { key: 'tut', char: '󰀏' },
+            { key: 'shun', char: '󰀐' },
+            { key: 'wo', char: '󰀑' },
+            { key: 'worufu', char: '󰀒' },
+            { key: 'worufu', char: '🐺' },
+            { key: 'katto', char: '󰀓' },
+            { key: 'katto', char: '🐱' },
+            { key: 'kon', char: '󰀔' },
+            { key: 'noku', char: '󰀕' },
+            { key: 'mu', char: '󰀖' },
+            { key: 'cha', char: '󰀗' },
+            { key: 'bi', char: '󰀘' },
+            { key: 'koncha', char: '😀' }
         ];
 
         // ユーザーが追加した辞書（ローカルストレージで保管・削除可能）
@@ -337,7 +348,9 @@
         let currentInputBuffer = ""; // ローマ字入力中のバッファ
         let activeCandidates = [];   // 現在の候補一覧
         let selectedCandidateIndex = 0; // 現在選択中の候補インデックス
+        let isConverted = false;     // 手動変換された状態かどうか (Space等を押して初めてtrueになる)
         let cachedImageUrl = null;   // モーダル用の一時URL保持用
+        let autoShowTimeout = null;  // 実際のIMEのように一定時間入力が止まったらポップアップするタイマー
 
         // 4. 初期化処理
         window.addEventListener('DOMContentLoaded', () => {
@@ -347,7 +360,6 @@
             setupModalEvents();
         });
 
-        // 5. ローカルストレージ辞書管理 (ユーザーが追加した単語のみを管理)
         function loadDictionary() {
             const stored = localStorage.getItem('uswinf_user_dictionary');
             if (stored) {
@@ -557,7 +569,7 @@
             return candidates;
         }
 
-        // 8. 候補ポップアップ表示位置の決定
+        // 8. 候補ポップアップ表示位置の決定 (文字と絶対に被らないようオフセットと物理基準点を補正)
         function showPopupAtSelection() {
             const selection = window.getSelection();
             if (selection.rangeCount === 0) return;
@@ -574,17 +586,52 @@
             }
 
             if (rect) {
-                const editorRect = editor.getBoundingClientRect();
-                let topPosition = rect.bottom - editorRect.top + editor.scrollTop + 12;
-                let leftPosition = rect.left - editorRect.left + editor.scrollLeft;
+                // 正確な offsetParent (relative 属性を保持するラッパー要素) の矩形を算出
+                const offsetParent = candidatePopup.offsetParent || editor.parentElement;
+                const parentRect = offsetParent.getBoundingClientRect();
+                
+                // 一時的に非表示設定を緩めて高さを取得する
+                candidatePopup.classList.remove('hidden');
+                const popupHeight = candidatePopup.offsetHeight || 150;
+                const popupWidth = candidatePopup.offsetWidth || 220;
 
-                if (leftPosition + 220 > editorRect.width) {
-                    leftPosition = Math.max(10, editorRect.width - 230);
+                const caretBottomViewport = rect.bottom;
+                const windowHeight = window.innerHeight;
+                
+                // キャレットが画面下側、もしくはキーボード領域付近（下50%以上）にある場合は入力文字の上に表示する
+                let showAbove = false;
+                if (caretBottomViewport + popupHeight > windowHeight || caretBottomViewport > windowHeight * 0.5) {
+                    showAbove = true;
+                }
+
+                let topPosition;
+                if (showAbove) {
+                    // 入力文字の「上」に十分なマージン（8px）を取って配置
+                    topPosition = rect.top - parentRect.top + editor.scrollTop - popupHeight - 8;
+                } else {
+                    // 入力文字の「下」に十分なマージン（14px）を取って配置（文字と被るのを徹底防止）
+                    topPosition = rect.bottom - parentRect.top + editor.scrollTop + 14;
+                }
+
+                // エディタの枠内を上部にはみ出すのを防ぐ
+                if (topPosition < 0) {
+                    topPosition = rect.bottom - parentRect.top + editor.scrollTop + 14;
+                }
+
+                let leftPosition = rect.left - parentRect.left + editor.scrollLeft;
+
+                // 横方向の画面はみ出しを補正
+                if (leftPosition + popupWidth > parentRect.width) {
+                    leftPosition = Math.max(10, parentRect.width - popupWidth - 10);
                 }
 
                 candidatePopup.style.top = `${topPosition}px`;
                 candidatePopup.style.left = `${leftPosition}px`;
-                candidatePopup.classList.remove('hidden');
+                
+                // 入力位置を画面から見失わないようにスクロール追従
+                if (compositionSpan) {
+                    compositionSpan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
             }
         }
 
@@ -638,7 +685,7 @@
             commitText(chosen.char);
         }
 
-        // 11. 未確定表示の更新
+        // 11. 未確定表示の更新 (手動変換対応)
         function updateCompositionView() {
             if (currentInputBuffer.length === 0) {
                 removeCompositionNode();
@@ -647,8 +694,10 @@
                 return;
             }
 
+            // 手動変換された状態(isConverted === true)なら、選択中候補の文字をインライン表示
+            // まだ変換していない状態なら、入力された英字そのままを表示
             let displayText = currentInputBuffer;
-            if (activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
+            if (isConverted && activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
                 displayText = activeCandidates[selectedCandidateIndex].char;
             }
 
@@ -672,7 +721,13 @@
             }
 
             compNode.textContent = displayText;
-            renderCandidates();
+
+            // 手動変換された状態のときだけ、候補リストをポップアップ表示する
+            if (isConverted) {
+                renderCandidates();
+            } else {
+                // 自動表示タイマーが裏で稼働中なので、ここでは隠さない
+            }
         }
 
         function removeCompositionNode() {
@@ -714,6 +769,7 @@
             currentInputBuffer = "";
             activeCandidates = [];
             selectedCandidateIndex = 0;
+            isConverted = false; // 確定したのでリセット
             hidePopup();
             compositionStatus.textContent = "";
         }
@@ -724,7 +780,7 @@
             }
         }
 
-        // 12. キー入力制御 (OSの日本語変換中は完全にスルーして衝突を防ぐ)
+        // 12. キー入力制御 (手動変換 + 自動出現タイマーシステム)
         editor.addEventListener('keydown', (e) => {
             if (e.isComposing || e.keyCode === 229) {
                 return;
@@ -737,23 +793,22 @@
 
             const isPopupVisible = !candidatePopup.classList.contains('hidden');
 
-            // 1) Space / Tabキーで候補選択
+            // 1) Space / Tabキーで変換または候補選択
             if (e.key === ' ' || e.code === 'Space' || e.key === 'Tab') {
                 if (currentInputBuffer.length > 0) {
                     e.preventDefault();
+                    clearTimeout(autoShowTimeout);
                     
-                    if (isPopupVisible && activeCandidates.length > 0) {
+                    if (!isConverted) {
+                        // 初めてSpaceキーが押されたら候補を検索し、手動変換状態に移行
+                        isConverted = true;
+                        activeCandidates = getCandidates(currentInputBuffer);
+                        selectedCandidateIndex = 0;
+                        updateCompositionView();
+                    } else if (activeCandidates.length > 0) {
+                        // すでに変換状態なら次の候補を選択する
                         selectedCandidateIndex = (selectedCandidateIndex + 1) % activeCandidates.length;
                         updateCompositionView();
-                    } else {
-                        const candidates = getCandidates(currentInputBuffer);
-                        if (candidates.length > 0) {
-                            activeCandidates = candidates;
-                            selectedCandidateIndex = 0;
-                            updateCompositionView();
-                        } else {
-                            commitComposition();
-                        }
                     }
                     return;
                 }
@@ -763,20 +818,24 @@
             if (e.key === 'Enter') {
                 if (currentInputBuffer.length > 0) {
                     e.preventDefault();
-                    if (isPopupVisible && activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
+                    clearTimeout(autoShowTimeout);
+                    if (isConverted && activeCandidates.length > 0 && selectedCandidateIndex >= 0) {
+                        // 変換中の場合は現在選択している候補で確定
                         selectCandidate(selectedCandidateIndex);
                     } else {
+                        // まだ変換していない（英字のまま）場合は、バッファそのままの英字で確定
                         commitComposition();
                     }
                     return;
                 }
             }
 
-            // 3) 数字キー (1〜9) で即一発確定
+            // 3) 数字キー (1〜9) で即一発確定 (候補が自動・手動問わず見えているとき)
             if (isPopupVisible && /^[1-9]$/.test(e.key)) {
                 const index = parseInt(e.key, 10) - 1;
                 if (index < activeCandidates.length) {
                     e.preventDefault();
+                    clearTimeout(autoShowTimeout);
                     selectCandidate(index);
                     return;
                 }
@@ -786,34 +845,81 @@
             if (e.key === 'Backspace') {
                 if (currentInputBuffer.length > 0) {
                     e.preventDefault();
+                    clearTimeout(autoShowTimeout);
                     currentInputBuffer = currentInputBuffer.slice(0, -1);
-                    updateIMEState();
+                    isConverted = false; // 文字が減ったら一旦未変換（英字状態）に戻す
+                    
+                    hidePopup();
+                    updateCompositionView();
+                    
+                    // 文字を消したときも、少しタイピングを止めたら自動で候補を再表示する
+                    autoShowTimeout = setTimeout(() => {
+                        if (currentInputBuffer.length > 0 && !isConverted) {
+                            activeCandidates = getCandidates(currentInputBuffer);
+                            selectedCandidateIndex = 0;
+                            if (activeCandidates.length > 0) {
+                                renderCandidates();
+                            }
+                        }
+                    }, 350);
                     return;
                 }
             }
 
-            // 5) Escapeでキャンセル
+            // 5) Escapeでキャンセルまたは変換戻し
             if (e.key === 'Escape') {
                 if (currentInputBuffer.length > 0) {
                     e.preventDefault();
-                    removeCompositionNode();
-                    currentInputBuffer = "";
-                    hidePopup();
-                    compositionStatus.textContent = "";
+                    clearTimeout(autoShowTimeout);
+                    if (isConverted) {
+                        // 変換中の場合は、未変換（英字）の状態に戻す
+                        isConverted = false;
+                        selectedCandidateIndex = 0;
+                        updateCompositionView();
+                        
+                        // 戻した後に少し待ったら候補ポップアップだけ自動で出す
+                        autoShowTimeout = setTimeout(() => {
+                            if (currentInputBuffer.length > 0 && !isConverted) {
+                                activeCandidates = getCandidates(currentInputBuffer);
+                                selectedCandidateIndex = 0;
+                                if (activeCandidates.length > 0) {
+                                    renderCandidates();
+                                }
+                            }
+                        }, 350);
+                    } else {
+                        // 変換中でない場合は入力中のバッファごと消去する
+                        removeCompositionNode();
+                        currentInputBuffer = "";
+                        hidePopup();
+                        compositionStatus.textContent = "";
+                    }
                     return;
                 }
             }
 
-            // 6) 矢印キー（上下）で候補変更
-            if (isPopupVisible) {
-                if (e.key === 'ArrowDown') {
+            // 6) 矢印キー（上下）で候補変更（または下キーで手動変換起動）
+            if (e.key === 'ArrowDown') {
+                if (currentInputBuffer.length > 0) {
                     e.preventDefault();
-                    selectedCandidateIndex = (selectedCandidateIndex + 1) % activeCandidates.length;
-                    updateCompositionView();
+                    clearTimeout(autoShowTimeout);
+                    if (!isConverted) {
+                        // 下キーでも手動変換を開始できるようにする
+                        isConverted = true;
+                        activeCandidates = getCandidates(currentInputBuffer);
+                        selectedCandidateIndex = 0;
+                        updateCompositionView();
+                    } else if (activeCandidates.length > 0) {
+                        selectedCandidateIndex = (selectedCandidateIndex + 1) % activeCandidates.length;
+                        updateCompositionView();
+                    }
                     return;
                 }
-                if (e.key === 'ArrowUp') {
+            }
+            if (e.key === 'ArrowUp') {
+                if (currentInputBuffer.length > 0 && isConverted && activeCandidates.length > 0) {
                     e.preventDefault();
+                    clearTimeout(autoShowTimeout);
                     selectedCandidateIndex = (selectedCandidateIndex - 1 + activeCandidates.length) % activeCandidates.length;
                     updateCompositionView();
                     return;
@@ -823,8 +929,24 @@
             // 7) 通常のアルファベットキー (A-Z) のみバッファに突っ込む
             if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
                 e.preventDefault();
+                clearTimeout(autoShowTimeout);
                 currentInputBuffer += e.key;
-                updateIMEState();
+                isConverted = false; // 新しく打鍵されたら変換フラグをリセットして英字に戻す
+                
+                // 入力中は一端ポップアップを閉じてチラつきを抑え、エディタ上はローマ字にする
+                hidePopup();
+                updateCompositionView();
+                
+                // 【実際のIME再現】打鍵が350ミリ秒止まったら勝手にポップアップを表示
+                autoShowTimeout = setTimeout(() => {
+                    if (currentInputBuffer.length > 0 && !isConverted) {
+                        activeCandidates = getCandidates(currentInputBuffer);
+                        selectedCandidateIndex = 0;
+                        if (activeCandidates.length > 0) {
+                            renderCandidates();
+                        }
+                    }
+                }, 350);
             } else if (e.key.length === 1) {
                 commitComposition();
             }
@@ -880,8 +1002,6 @@
         copyImgBtn.addEventListener('click', () => {
             commitComposition(); // 撮影前に変換中のバッファを確定
             
-            // 撮影時のカクつき（枠線が一時的に消える挙動）を解消するため、クローン要素を使うか
-            // もしくは枠線設定を丁寧にハンドリング
             const originalBorder = editor.style.borderColor;
             const originalShadow = editor.style.boxShadow;
             
